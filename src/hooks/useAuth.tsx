@@ -1,4 +1,6 @@
 import { useState, useEffect, createContext, useContext, ReactNode } from 'react';
+import { jwtDecode } from 'jwt-decode';
+import config from '@/config';
 
 interface User {
   id: string;
@@ -7,10 +9,18 @@ interface User {
   avatar?: string;
 }
 
+// Define the structure of our JWT payload
+interface JwtPayload {
+  sub: string; // "subject", which is the user's email in our case
+  iat: number; // "issued at"
+  exp: number; // "expiration time"
+}
+
 interface AuthContextType {
   user: User | null;
   isLoading: boolean;
-  signInWithGoogle: () => Promise<void>;
+  signIn: (email: string, password: string) => Promise<void>;
+  signUp: (name: string, email: string, password: string) => Promise<void>;
   signOut: () => Promise<void>;
 }
 
@@ -21,48 +31,77 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    // Simulate checking for existing auth session
-    const checkAuth = async () => {
-      // In a real app, this would check for existing tokens
-      const savedUser = localStorage.getItem('user');
-      if (savedUser) {
-        setUser(JSON.parse(savedUser));
+    const initializeAuth = () => {
+      const token = localStorage.getItem('jwt_token');
+      if (token) {
+        try {
+          const payload = jwtDecode<JwtPayload>(token);
+          // Check if token is expired
+          if (payload.exp * 1000 > Date.now()) {
+            setUser({ id: payload.sub, name: payload.sub, email: payload.sub });
+          } else {
+            // Token is expired, remove it
+            localStorage.removeItem('jwt_token');
+            console.log("removal")
+          }
+        } catch (e) {
+          console.error("Invalid token found:", e);
+          localStorage.removeItem('jwt_token');
+          console.log("removal")
+        }
       }
       setIsLoading(false);
     };
-
-    checkAuth();
+    initializeAuth();
   }, []);
 
-  const signInWithGoogle = async () => {
-    setIsLoading(true);
-    try {
-      // Mock Google OAuth - in real implementation, use Google OAuth library
-      const mockUser: User = {
-        id: '1',
-        name: 'John Doe',
-        email: 'john.doe@example.com',
-        avatar: undefined,
-      };
-      
-      setUser(mockUser);
-      localStorage.setItem('user', JSON.stringify(mockUser));
-    } catch (error) {
-      console.error('Sign in failed:', error);
-    } finally {
-      setIsLoading(false);
+  const signIn = async (email: string, password: string) => {
+    const response = await fetch(`${config.documentServiceUrl}/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password }),
+    });
+
+    if (!response.ok) {
+      throw new Error('Login failed. Please check your credentials.');
+    }
+
+    const data = await response.json();
+    const token = data.token;
+
+    if (!token) {
+      throw new Error('Token not found in login response.');
+    }
+
+    localStorage.setItem('jwt_token', token);
+
+    // USE THE LIBRARY INSTEAD OF THE CUSTOM FUNCTION
+    const payload = jwtDecode<JwtPayload>(token);
+    setUser({ id: payload.sub, name: payload.sub, email: payload.sub });
+  };
+
+  const signUp = async (name: string, email: string, password: string) => {
+    const response = await fetch(`${config.documentServiceUrl}/auth/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, email, password }),
+    });
+
+    if (!response.ok) {
+      throw new Error('Registration failed. The email might already be in use.');
     }
   };
 
   const signOut = async () => {
     setUser(null);
-    localStorage.removeItem('user');
+    localStorage.removeItem('jwt_token');
+    console.log("removal")
   };
 
   return (
-    <AuthContext.Provider value={{ user, isLoading, signInWithGoogle, signOut }}>
-      {children}
-    </AuthContext.Provider>
+      <AuthContext.Provider value={{ user, isLoading, signIn, signUp, signOut }}>
+        {children}
+      </AuthContext.Provider>
   );
 }
 

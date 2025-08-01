@@ -40,9 +40,11 @@ export default function DocumentsPage() {
     doc.content.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
-  const handleCreateDocument = () => {
-    const docId = createDocument();
-    navigate(`/editor/${docId}`);
+  const handleCreateDocument = async () => {
+    const newDocId = await createDocument();
+    if (newDocId) {
+      navigate(`/editor/${newDocId}`);
+    }
   };
 
   const handleDeleteDocument = (id: string) => {
@@ -156,7 +158,7 @@ export default function DocumentsPage() {
                 id={doc.id}
                 title={doc.title}
                 lastModified={doc.lastModified}
-                collaborators={doc.collaborators}
+                collaborators={doc.collaboratorIds?.length || 0}
                 isShared={doc.isShared}
                 onClick={() => {
                   console.log(`Opening document ${doc.id}`);

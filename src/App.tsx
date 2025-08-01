@@ -9,6 +9,7 @@ import EditorPage from "./pages/EditorPage";
 import LoginPage from "./pages/LoginPage";
 import NotFound from "./pages/NotFound";
 import ProtectedRoute from "./components/ProtectedRoute";
+import RegisterPage from "@/pages/RegisterPage.tsx";
 
 const queryClient = new QueryClient();
 
@@ -21,6 +22,7 @@ const App = () => (
         <BrowserRouter>
           <Routes>
             <Route path="/login" element={<LoginPage />} />
+            <Route path="/register" element={<RegisterPage />}/>
             <Route path="/" element={
               <ProtectedRoute>
                 <DocumentsPage />

@@ -1,108 +1,83 @@
-import { useState } from 'react';
-import { Navigate } from 'react-router-dom';
-import { FileText, Chrome } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { useForm } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
+import { z } from 'zod';
+import { useNavigate, Link, Navigate } from 'react-router-dom';
+import { toast } from 'sonner';
+
+const loginSchema = z.object({
+  email: z.string().email({ message: "Invalid email address." }),
+  password: z.string().min(1, { message: "Password is required." }),
+});
+
+type LoginFormValues = z.infer<typeof loginSchema>;
 
 export default function LoginPage() {
-  const { user, signInWithGoogle, isLoading } = useAuth();
-  const [isSigningIn, setIsSigningIn] = useState(false);
+  const navigate = useNavigate();
+  const { signIn, user, isLoading } = useAuth();
+  const { register, handleSubmit, formState: { errors, isSubmitting } } = useForm<LoginFormValues>({
+    resolver: zodResolver(loginSchema),
+  });
 
-  // Redirect if already authenticated
+  if (isLoading) {
+    return <div className="min-h-screen flex items-center justify-center">Loading...</div>;
+  }
+
   if (user) {
     return <Navigate to="/" replace />;
   }
 
-  const handleGoogleSignIn = async () => {
-    setIsSigningIn(true);
+  const onSubmit = async (data: LoginFormValues) => {
     try {
-      await signInWithGoogle();
-    } catch (error) {
-      console.error('Sign in failed:', error);
-    } finally {
-      setIsSigningIn(false);
+      await signIn(data.email, data.password);
+      navigate('/');
+    } catch (error: any) {
+      toast.error("Login Failed", {
+        description: error.message || "An unexpected error occurred.",
+      });
     }
   };
 
-  if (isLoading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-secondary">
-        <div className="animate-pulse">Loading...</div>
-      </div>
-    );
-  }
-
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-secondary px-4">
-      <div className="w-full max-w-md">
-        {/* Logo and Branding */}
-        <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-gradient-primary mb-4">
-            <FileText className="h-8 w-8 text-white" />
-          </div>
-
-          <h1 className="text-3xl font-bold bg-gradient-primary bg-clip-text text-transparent">
-            CollabEdit
-          </h1>
-
-          <p className="text-muted-foreground mt-2">
-            Real-time collaborative text editor
-          </p>
-        </div>
-
-        {/* Login Card */}
-        <Card className="shadow-lg border-border/50">
-          <CardHeader className="text-center">
-            <CardTitle className="text-2xl">Welcome back</CardTitle>
-
-            <p className="text-muted-foreground">
-              Sign in to start collaborating on documents
-            </p>
+      <div className="min-h-screen flex items-center justify-center bg-background px-4">
+        <Card className="mx-auto max-w-sm">
+          <CardHeader>
+            <CardTitle className="text-2xl">Login</CardTitle>
+            <CardDescription>Enter your email below to login to your account</CardDescription>
           </CardHeader>
-          
-          <CardContent className="space-y-4">
-            <Button
-              onClick={handleGoogleSignIn}
-              disabled={isSigningIn}
-              className="w-full bg-gradient-primary hover:shadow-glow transition-all duration-300"
-              size="lg"
-            >
-              <Chrome className="h-5 w-5 mr-2" />
-              {isSigningIn ? 'Signing in...' : 'Continue with Google'}
-            </Button>
-
-            <div className="text-center text-sm text-muted-foreground">
-              By signing in, you agree to our{' '}
-              <a href="#" className="text-primary hover:underline">
-                Terms of Service
-              </a>{' '}
-              and{' '}
-              <a href="#" className="text-primary hover:underline">
-                Privacy Policy
-              </a>
+          <CardContent>
+            <form onSubmit={handleSubmit(onSubmit)} className="grid gap-4">
+              <div className="grid gap-2">
+                <Label htmlFor="email">Email</Label>
+                <Input id="email" type="email" placeholder="m@example.com" {...register("email")} />
+                {errors.email && <p className="text-xs text-destructive">{errors.email.message}</p>}
+              </div>
+              <div className="grid gap-2">
+                <div className="flex items-center">
+                  <Label htmlFor="password">Password</Label>
+                  {/* <Link to="/forgot-password" className="ml-auto inline-block text-sm underline">
+                  Forgot your password?
+                </Link> */}
+                </div>
+                <Input id="password" type="password" {...register("password")} />
+                {errors.password && <p className="text-xs text-destructive">{errors.password.message}</p>}
+              </div>
+              <Button type="submit" className="w-full" disabled={isSubmitting}>
+                {isSubmitting ? "Logging in..." : "Login"}
+              </Button>
+            </form>
+            <div className="mt-4 text-center text-sm">
+              Don&apos;t have an account?{" "}
+              <Link to="/register" className="underline">
+                Sign up
+              </Link>
             </div>
           </CardContent>
         </Card>
-
-        {/* Features */}
-        <div className="mt-8 text-center">
-          <div className="grid grid-cols-3 gap-4 text-sm">
-            <div className="p-4 rounded-lg bg-background/50">
-              <div className="font-semibold text-foreground">Real-time</div>
-              <div className="text-muted-foreground">Collaborate instantly</div>
-            </div>
-            <div className="p-4 rounded-lg bg-background/50">
-              <div className="font-semibold text-foreground">Offline</div>
-              <div className="text-muted-foreground">Work anywhere</div>
-            </div>
-            <div className="p-4 rounded-lg bg-background/50">
-              <div className="font-semibold text-foreground">Secure</div>
-              <div className="text-muted-foreground">Your data is safe</div>
-            </div>
-          </div>
-        </div>
       </div>
-    </div>
   );
 }
