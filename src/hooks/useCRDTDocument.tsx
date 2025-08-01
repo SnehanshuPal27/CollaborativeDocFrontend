@@ -1,11 +1,15 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import * as Y from 'yjs';
 import { IndexeddbPersistence } from 'y-indexeddb';
 import * as awarenessProtocol from 'y-protocols/awareness';
-import { Client } from '@stomp/stompjs';
-import SockJS from 'sockjs-client';
 import { useAuth } from './useAuth';
 import config from '@/config';
+
+// --- Yjs Message Types ---
+// This is our simple, custom protocol. We prepend a single byte to each message
+// to tell the receiver if it's a sync update or an awareness update.
+const MESSAGE_SYNC = 0;
+const MESSAGE_AWARENESS = 1;
 
 export interface AwarenessState {
   user: {
@@ -18,6 +22,9 @@ export function useCRDTDocument(docId: string | null) {
   const { user } = useAuth();
   const [isConnected, setIsConnected] = useState(false);
 
+  const wsRef = useRef<WebSocket | null>(null);
+
+  // Memoize the Y.Doc and awareness instances to ensure they are stable.
   const { doc, awareness } = useMemo(() => {
     const doc = new Y.Doc();
     const awareness = new awarenessProtocol.Awareness(doc);
@@ -25,70 +32,97 @@ export function useCRDTDocument(docId: string | null) {
   }, []);
 
   useEffect(() => {
-    if (!user || !docId) return;
+    if (!docId || !user) {
+      return;
+    }
+
+    const token = localStorage.getItem('jwt_token');
+    if (!token) {
+      console.error("Authentication token not found, WebSocket connection aborted.");
+      return;
+    }
 
     const persistence = new IndexeddbPersistence(docId, doc);
-    const token = localStorage.getItem('jwt_token');
 
-    const stompClient = new Client({
-      webSocketFactory: () => new SockJS(config.websocketUrl),
-      connectHeaders: {
-        Authorization: `Bearer ${token}`,
-      },
-      reconnectDelay: 5000,
-    });
+    const wsUrl = `${config.websocketUrl}/ws/${docId}?token=${token}`;
+    const ws = new WebSocket(wsUrl);
+    ws.binaryType = 'arraybuffer';
+    wsRef.current = ws;
 
-    stompClient.onConnect = () => {
+    ws.onopen = () => {
       setIsConnected(true);
-      console.log(`%c[Frontend] STOMP connected. Subscribing to topics for docId: ${docId}`, "color: green");
-      stompClient.subscribe(`/topic/document/${docId}/update`, message => {
-        console.log("%c[Frontend] Received doc update from backend.", "color: blue");
-        Y.applyUpdate(doc, new Uint8Array(message.binaryBody), 'backend');
-      });
-      stompClient.subscribe(`/topic/document/${docId}/awareness`, message => {
-        console.log("%c[Frontend] Received awareness update from backend.", "color: purple");
-        awarenessProtocol.applyAwarenessUpdate(awareness, new Uint8Array(message.binaryBody), 'backend');
-      });
-      awareness.setLocalStateField('user', {
-        name: user.name,
-        color: `#${Math.floor(Math.random() * 16777215).toString(16).padStart(6, '0')}`,
-      });
+      console.log(`%c[Connection] WebSocket established.`, 'color: green');
+
+      // 1. Send our current document state to get any missing updates
+      const stateVector = Y.encodeStateVector(doc);
+      const syncMessage = new Uint8Array([MESSAGE_SYNC, ...stateVector]);
+      ws.send(syncMessage);
+
+      // 2. Send our initial awareness state
+      const awarenessUpdate = awarenessProtocol.encodeAwarenessUpdate(awareness, [doc.clientID]);
+      const awarenessMessage = new Uint8Array([MESSAGE_AWARENESS, ...awarenessUpdate]);
+      ws.send(awarenessMessage);
     };
 
-    stompClient.onDisconnect = () => setIsConnected(false);
+    ws.onmessage = (event: MessageEvent) => {
+      const data = new Uint8Array(event.data);
+      const messageType = data[0];
+      const messageContent = data.slice(1);
 
-    const onDocUpdate = (update: Uint8Array, origin: any) => {
-      if (origin !== 'backend' && stompClient.connected){
-        console.log(update)
-        console.log(`%c[Frontend] Sending doc update to backend... (size: ${update.byteLength})`, "color: orange");
-        stompClient.publish({
-          destination: `/app/document/${docId}/update`,
-          binaryBody: update,
-        });
+      // This is where the CRDT logic lives on the frontend.
+      // We check the message type and apply the update accordingly.
+      switch (messageType) {
+        case MESSAGE_SYNC:
+          console.log('%c[PROCESS] Applying Sync message.', 'color: teal');
+          // Y.applyUpdate is the core CRDT function that merges changes.
+          Y.applyUpdate(doc, messageContent, 'server');
+          break;
+        case MESSAGE_AWARENESS:
+          console.log('%c[PROCESS] Applying Awareness message.', 'color: purple');
+          // This merges cursor/selection data from other users.
+          awarenessProtocol.applyAwarenessUpdate(awareness, messageContent, 'server');
+          break;
+        default:
+          console.warn(`[PROCESS] Received unknown message type: ${messageType}`);
       }
+    };
 
+    ws.onclose = () => setIsConnected(false);
+    ws.onerror = (error) => console.error('WebSocket error:', error);
+
+    // --- Local Change Handlers ---
+    // When the local document changes, we send the update to the server.
+    const onDocUpdate = (update: Uint8Array, origin: any) => {
+      if (origin !== 'server' && ws.readyState === WebSocket.OPEN) {
+        const message = new Uint8Array([MESSAGE_SYNC, ...update]);
+        ws.send(message);
+      }
     };
     doc.on('update', onDocUpdate);
 
-    const onAwarenessUpdate = ({ added, updated, removed }: any, origin: any) => {
-      if (origin !== 'backend' && stompClient.connected) {
-        console.log(`%c[Frontend] Sending awareness update to backend...`, "color: pink");
-        const changedClients = added.concat(updated, removed);
+    // When the local awareness state changes, we send the update to the server.
+    const onAwarenessUpdate = (changes: any, origin: any) => {
+      if (origin === 'local' && ws.readyState === WebSocket.OPEN) {
+        const changedClients = changes.added.concat(changes.updated, changes.removed);
         const update = awarenessProtocol.encodeAwarenessUpdate(awareness, changedClients);
-        stompClient.publish({
-          destination: `/app/document/${docId}/awareness`,
-          binaryBody: update,
-        });
+        const message = new Uint8Array([MESSAGE_AWARENESS, ...update]);
+        ws.send(message);
       }
     };
     awareness.on('update', onAwarenessUpdate);
 
-    stompClient.activate();
+    // Set initial user details for others to see.
+    awareness.setLocalStateField('user', {
+      name: user.name,
+      color: `#${Math.floor(Math.random() * 16777215).toString(16).padStart(6, '0')}`,
+    });
 
+    // Cleanup function to close the connection and remove listeners.
     return () => {
-      stompClient.deactivate();
+      ws.close();
       doc.off('update', onDocUpdate);
       awareness.off('update', onAwarenessUpdate);
+      persistence.destroy();
     };
   }, [docId, user, doc, awareness]);
 
