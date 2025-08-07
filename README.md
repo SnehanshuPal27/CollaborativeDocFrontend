@@ -1,146 +1,87 @@
-# Welcome to your Lovable project
+# CollabEdit: Real-Time Collaborative Document Editor (Frontend)
 
-## Project info
+CollabEdit is a feature-rich, web-based collaborative document editor designed to provide a seamless, real-time multi-user editing experience similar to Google Docs. It allows users to create, share, and edit documents simultaneously, with changes reflected instantly for all participants.
 
-**URL**: https://lovable.dev/projects/8f158bd7-d55a-43a8-b1ac-67a7d2ff10ab
+This repository contains the complete frontend application built with React, TypeScript, and Vite.
 
-## How can I edit this code?
+**A corresponding backend server is required for this application to function. [➡️ View the Backend Repository](https://github.com/SnehanshuPal27/CollaborativeDocBackend)** ---
 
-There are several ways of editing your application.
+## Key Features
 
-**Use Lovable**
+-   **Secure User Authentication:** A complete registration and login system using JWT-based session management to protect user accounts and data.
+-   **Document Management Dashboard:** A centralized and intuitive interface for users to create, view, rename, and delete their documents.
+-   **Real-Time Multi-User Collaboration:** The core of the application, this feature allows multiple users to edit the same document simultaneously. All changes are synced across all clients in real-time without conflicts.
+-   **Live Presence and Cursor Tracking:** Provides immediate visual feedback of other active users in a document, including uniquely colored cursors tagged with usernames.
+-   **Offline-First Capability:** Powered by IndexedDB, users can continue to edit documents even if their internet connection is lost. All changes made offline are automatically synced once the connection is restored.
+-   **Document Sharing:** Document owners can invite other registered users to collaborate simply by entering their email address.
 
-Simply visit the [Lovable Project](https://lovable.dev/projects/8f158bd7-d55a-43a8-b1ac-67a7d2ff10ab) and start prompting.
+---
 
-Changes made via Lovable will be committed automatically to this repo.
+## Architectural Overview & Underlying Concepts
 
-**Use your preferred IDE**
+The primary goal of this project is to achieve a low-latency, conflict-free editing experience. This is accomplished through a sophisticated architecture that leverages Conflict-free Replicated Data Types (CRDTs).
 
-If you want to work locally using your own IDE, you can clone this repo and push changes. Pushed changes will also be reflected in Lovable.
+-   **Client-Side Logic (CRDT):** The frontend uses **Yjs**, a powerful CRDT implementation. This allows editing conflicts (e.g., two users typing in the same place) to be resolved mathematically on the client side without needing to wait for a server's decision. This results in a fast, lag-free typing experience. The client generates tiny binary "updates" representing changes, not the entire document.
 
-The only requirement is having Node.js & npm installed - [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating)
+-   **Backend Logic (Relay & Persistence):** The **Java Spring Boot** backend is designed as a high-performance but "unaware" relay. It does not process or understand the content of the document updates. Its responsibilities are clearly defined:
+    1.  **Authentication & Metadata:** Manages user data and document permissions, which are stored in a **PostgreSQL** database.
+    2.  **Real-time Relay:** A **Spring WebSockets** server receives Yjs updates from one client.
+    3.  **Scalable Broadcasting:** It leverages **Redis Pub/Sub** to instantly broadcast these updates to all other clients in the same document session. This decouples message-sending and allows the architecture to scale horizontally.
+    4.  **Persistence:** The backend logs every update in a **Redis List** for the duration of an active session. When the session ends, this log of updates is concatenated and saved as a single snapshot to **Google Cloud Storage (GCS)** for long-term, durable storage.
 
-Follow these steps:
+---
 
-```sh
-# Step 1: Clone the repository using the project's Git URL.
-git clone <YOUR_GIT_URL>
+## Tech Stack
 
-# Step 2: Navigate to the project directory.
-cd <YOUR_PROJECT_NAME>
+### Frontend
+-   **Framework:** React (Bootstrapped with Vite)
+-   **Language:** TypeScript
+-   **Real-time Sync & Editing:** Yjs, Tiptap, SockJS
+-   **UI Components & Styling:** Tailwind CSS, shadcn/ui
+-   **Server State Management:** TanStack Query (React Query)
+-   **Routing:** React Router
 
-# Step 3: Install the necessary dependencies.
-npm i
+### Backend
+-   **Framework:** Java Spring Boot
+-   **Language:** Java
+-   **Real-time Communication:** Spring WebSockets
+-   **Database:** PostgreSQL (for user and document metadata)
+-   **In-Memory Cache & Messaging:** Redis (for session management and Pub/Sub)
+-   **Durable Storage:** Google Cloud Storage (GCS) for document snapshots
+-   **Authentication:** Spring Security with JSON Web Tokens (JWT)
 
-# Step 4: Start the development server with auto-reloading and an instant preview.
-npm run dev
-```
+---
 
-**Edit a file directly in GitHub**
+## Local Development Setup
 
-- Navigate to the desired file(s).
-- Click the "Edit" button (pencil icon) at the top right of the file view.
-- Make your changes and commit the changes.
+To run the frontend application on your local machine, please ensure you have a running instance of the [backend server](https://github.com/SnehanshuPal27/CollaborativeDocBackend).
 
-**Use GitHub Codespaces**
+### Prerequisites
+-   Node.js (v18 or later)
+-   npm or another package manager like yarn or pnpm
 
-- Navigate to the main page of your repository.
-- Click on the "Code" button (green button) near the top right.
-- Select the "Codespaces" tab.
-- Click on "New codespace" to launch a new Codespace environment.
-- Edit files directly within the Codespace and commit and push your changes once you're done.
+### Installation & Running
 
-## What technologies are used for this project?
+1.  **Clone the repository:**
+    ```sh
+    git clone [https://github.com/SnehanshuPal27/CollaborativeDocFrontend.git](https://github.com/SnehanshuPal27/CollaborativeDocFrontend.git)
+    cd CollaborativeDocFrontend
+    ```
+    *Note: Replace the URL with your repository's actual URL.*
 
-This project is built with:
+2.  **Install dependencies:**
+    ```sh
+    npm install
+    ```
 
-- Vite
-- TypeScript
-- React
-- shadcn-ui
-- Tailwind CSS
+3.  **Configure Environment Variables:**
+    Create a file named `.env` in the project's root directory. Add the following line, pointing to the URL of your local backend server:
+    ```
+    VITE_API_BASE_URL=http://localhost:8080
+    ```
 
-## How can I deploy this project?
-
-Simply open [Lovable](https://lovable.dev/projects/8f158bd7-d55a-43a8-b1ac-67a7d2ff10ab) and click on Share -> Publish.
-
-## Can I connect a custom domain to my Lovable project?
-
-Yes, you can!
-
-To connect a domain, navigate to Project > Settings > Domains and click Connect Domain.
-
-Read more here: [Setting up a custom domain](https://docs.lovable.dev/tips-tricks/custom-domain#step-by-step-guide)
-
-## Document Schema for Backend
-
-The frontend application expects a `Document` object with the following structure. The backend API should provide data conforming to this schema.
-
-```typescript
-/**
- * Represents a collaborator on a document.
- */
-interface Collaborator {
-  id: string;      // User's unique ID
-  name: string;    // User's display name
-  avatarUrl?: string; // URL for the user's avatar image
-  color: string;   // A unique color for the user's cursor and presence
-}
-
-/**
- * Defines the schema for a Document object.
- */
-interface Document {
-  /**
-   * Unique identifier for the document (e.g., UUID).
-   * @example "doc_1a2b3c4d"
-   */
-  id: string;
-
-  /**
-   * The title of the document.
-   */
-  title: string;
-
-  /**
-   * The main content of the document (e.g., plain text, Markdown, or JSON).
-   */
-  content: string;
-
-  /**
-   * The ID of the user who owns the document.
-   */
-  ownerId: string;
-
-  /**
-   * An array of collaborators who have access to the document.
-   */
-  collaborators: Collaborator[];
-
-  /**
-   * A boolean flag indicating if the document is shared with others.
-   */
-  isShared: boolean;
-
-  /**
-   * ISO 8601 timestamp for when the document was created.
-   * @example "2023-10-27T10:00:00Z"
-   */
-  createdAt: string;
-
-  /**
-   * ISO 8601 timestamp for when the document was last modified.
-   * @example "2023-10-27T12:30:00Z"
-   */
-  lastModified: string;
-}
-```
-
-### Key Parameters Required by the Frontend:
-
--   **`id` (string)**: Essential for navigation (`/editor/:id`) and all CRUD operations (get, update, delete).
--   **`title` (string)**: Displayed in document lists and the editor. Can be updated.
--   **`content` (string)**: The core editable text of the document.
--   **`lastModified` (string)**: Displayed on the `DocumentCard` to indicate freshness.
--   **`collaborators` (Collaborator[])**: Used to display collaborator avatars on the `DocumentCard`.
--   **`isShared` (boolean)**: Used to show a visual indicator on the `DocumentCard` if a document is shared.
+4.  **Start the development server:**
+    ```sh
+    npm run dev
+    ```
+    The application will be available at `http://localhost:8000`.
